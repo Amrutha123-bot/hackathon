@@ -1,0 +1,23 @@
+# Ignore Python virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Ignore data, databases, and cache
+chroma_db/
+*.sqlite3
+*.bin
+
+# Ignore compiled libraries
+*.pyd
+*.dll
+*.lib
+*.so
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# VS Code settings (optional)
+.vscode/
