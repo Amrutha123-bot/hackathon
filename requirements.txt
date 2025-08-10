@@ -1,5 +1,4 @@
 libmagic==1.0
-sqlite3
 python-magic==0.4.27
 # python-magic-bin==0.4.14
 # OpenAI == 0.28.0
