@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import shutil
 import sqlite3
+import pymupdf
 # --- Langchain Imports ---
 # Document Loaders
 from langchain_community.document_loaders import PyMuPDFLoader
