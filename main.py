@@ -1,16 +1,14 @@
+# --- main.py ---
 import streamlit as st
 import os
-import lark
 import pickle
 import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import shutil
-import sqlite3
-from langchain_community.document_loaders import PyMuPDFLoader
 
-
+# --- Langchain Imports ---
 # Document Loaders
 from langchain_community.document_loaders.pdf import UnstructuredPDFLoader
 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
@@ -22,7 +20,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 
 # Vector Stores
-from langchain_community.vectorstores import Chroma # This is where ChromaDB is used
+from langchain_community.vectorstores import Chroma
 # Removed FAISS import as we are using Chroma
 
 # Chains and Prompts
@@ -49,14 +47,10 @@ class DecisionResponse(BaseModel):
     amount: Optional[float] = Field(None, description="Payout amount, if applicable.")
     justification: str = Field(..., description="Explanation for the decision, referencing specific clauses.")
     clauses_used: List[str] = Field(..., description="List of document clauses that supported the decision.")
-# load_dotenv()
-openai_api_key = os.getenv("OPENAI_API_KEY")
-st.sidebar.write(f"DEBUG: OPENAI_API_KEY found? {'Yes' if openai_api_key else 'No'}")
-if openai_api_key:
-    # Displaying the first few characters to confirm it's not empty
-    st.sidebar.write(f"DEBUG: OPENAI_API_KEY starts with: {openai_api_key[:4]}...")
-# --- Configuration ---
 
+# --- Configuration ---
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     st.error("OPENAI_API_KEY not found. Please set the environment variable.")
     st.stop()
@@ -73,12 +67,10 @@ def initialize_session_state():
     st.session_state.setdefault('llm_parser_decision', None)
     st.session_state.setdefault('llm_retriever', None)
     st.session_state.setdefault('embeddings', None)
-    st.session_state.setdefault('chroma_db_initialized', False) # Track if Chroma DB was successfully initialized
 
 initialize_session_state()
 
 # --- Initialize LLMs and Embeddings ---
-# Use a try-except block to catch potential issues with API key or model loading
 try:
     if st.session_state.llm_parser_decision is None:
         st.session_state.llm_parser_decision = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
@@ -97,26 +89,21 @@ def get_loader_for_file(file_path: str):
     file_extension = os.path.splitext(file_path)[1].lower()
 
     if file_extension == ".pdf":
-        from langchain_community.document_loaders import PyMuPDFLoader
-        return PyMuPDFLoader(file_path)
+        return UnstructuredPDFLoader(file_path)
     elif file_extension == ".docx":
-        from langchain_community.document_loaders import UnstructuredWordDocumentLoader
         return UnstructuredWordDocumentLoader(file_path)
     elif file_extension == ".eml":
-        from langchain_community.document_loaders import UnstructuredEmailLoader
         return UnstructuredEmailLoader(file_path)
     elif file_extension == ".txt":
-        from langchain_community.document_loaders import TextLoader
         return TextLoader(file_path)
     else:
         try:
-            from langchain_community.document_loaders import UnstructuredFileLoader
-            st.warning(f"Attempting to load unknown file type '{file_extension}' with UnstructuredFileLoader.")
-            return UnstructuredFileLoader(file_path)
+            from langchain_unstructured import UnstructuredLoader
+            st.warning(f"Attempting to load unknown file type '{file_extension}' with UnstructuredLoader.")
+            return UnstructuredLoader(file_path)
         except ImportError:
             st.sidebar.error("langchain-unstructured not installed. Cannot load unknown file types.")
             return None
-
 
 def load_documents_from_directory_manually(directory_path):
     """Loads documents from a directory by iterating through files and using specific loaders."""
@@ -137,7 +124,7 @@ def load_documents_from_directory_manually(directory_path):
         st.warning("No files found in the upload directory.")
         return []
 
-    progress_bar_placeholder = st.empty() # Placeholder for progress updates
+    progress_bar_placeholder = st.empty()
 
     for i, file_path in enumerate(files_to_process):
         filename = os.path.basename(file_path)
@@ -160,17 +147,15 @@ def load_documents_from_directory_manually(directory_path):
             else:
                 st.sidebar.warning(f"Skipping unsupported file type: {filename}")
 
-            # Update progress bar
             progress_bar_placeholder.progress((i + 1) / total_files, text=f"Processing: {filename}")
 
         except Exception as e:
             st.sidebar.error(f"Error loading {filename}: {e}")
 
-    progress_bar_placeholder.empty() # Clear the progress bar once done
+    progress_bar_placeholder.empty()
 
     if not all_docs and files_to_process:
-        # This error message is critical and directly addresses the user's original problem
-        st.error("Failed to load any documents. Please check file formats and ensure necessary dependencies are installed (e.g., pip install 'unstructured[pdf]' python-docx). Ensure system dependencies like poppler-utils and build-essential are also installed for unstructured.")
+        st.error("Failed to load any documents. Please check file formats and ensure necessary dependencies are installed (e.g., pip install unstructured[pdf] python-docx pypdf).")
     elif not all_docs and not files_to_process:
         st.warning("No files were found to process.")
     else:
@@ -202,7 +187,6 @@ def parse_user_query(query: str) -> QueryDetails:
     )
 
     try:
-        # Use the LLM stored in session state
         response = st.session_state.llm_parser_decision.invoke(formatted_prompt.format(user_query=query))
         parsed_data = parser.parse(response.content)
         return parsed_data
@@ -239,120 +223,6 @@ def create_decision_chain(llm, retriever):
     chain = LLMChain(llm=llm, prompt=prompt)
     return chain, parser
 
-# --- Function to initialize Chroma DB and Retriever ---
-def initialize_chroma_and_retriever(split_docs):
-    """Initializes Chroma DB and the SelfQueryRetriever."""
-    status_placeholder = st.empty() # Use a temporary placeholder for status
-
-    try:
-        status_placeholder.info("Creating embeddings and indexing documents into Chroma DB...")
-
-        # Define metadata fields for SelfQueryRetriever.
-        # This list of dictionaries tells the retriever which metadata keys it can use for filtering.
-        # IMPORTANT: For filtering to work, these fields MUST be populated in the `doc.metadata`
-        # when the documents are loaded and indexed. The `load_documents_from_directory_manually`
-        # function currently only adds 'source'. You need to implement logic to extract
-        # 'age', 'procedure', 'location', 'policy_duration' from document content if required for filtering.
-        metadata_field_info = [
-            {"name": "source", "description": "The source document the chunk came from", "type": "string"},
-            # Add others only if you have logic to populate them:
-            # {"name": "age", "description": "The age of the policyholder.", "type": "integer"},
-            # {"name": "procedure", "description": "The medical procedure performed or service requested.", "type": "string"},
-            # {"name": "location", "description": "The location of the service or hospital.", "type": "string"},
-            # {"name": "policy_duration", "description": "The duration of the insurance policy.", "type": "string"},
-        ]
-
-        # --- Initialize Chroma DB ---
-        # Chroma saves automatically upon creation with persist_directory
-        vectorstore = Chroma.from_documents(
-            documents=split_docs,
-            embedding=st.session_state.embeddings,
-            persist_directory=CHROMA_DB_DIR # Specify directory for Chroma
-        )
-
-        st.session_state.processed_data_path = CHROMA_DB_DIR # Store the Chroma DB directory path
-        st.session_state.chroma_db_initialized = True # Mark Chroma as initialized
-
-        # --- Create Retriever ---
-        st.session_state.retriever = SelfQueryRetriever.from_llm(
-            st.session_state.llm_retriever, # LLM for query understanding
-            vectorstore,
-            # --- ADDED THE MISSING DOCUMENT CONTENTS DESCRIPTION ---
-            "Brief summary of a document, including its source and any relevant metadata.",
-            metadata_field_info, # Metadata definitions for filtering
-            verbose=True,
-            search_kwargs={'k': 5} # Number of documents to retrieve
-        )
-        st.session_state.vectorstore_and_retriever_loaded = True
-
-        status_placeholder.success("Documents processed and indexed successfully! You can now ask questions.")
-        return True
-
-    except Exception as e:
-        st.error(f"Error during embedding or Chroma DB creation: {e}")
-        status_placeholder.error("Document processing failed.")
-        st.session_state.chroma_db_initialized = False # Ensure it's marked as not initialized on error
-        st.session_state.vectorstore_and_retriever_loaded = False
-        return False
-
-# --- Function to load Chroma DB and Retriever ---
-def load_chroma_and_retriever():
-    """Loads existing Chroma DB and the SelfQueryRetriever from disk."""
-    status_placeholder = st.empty() # Use a temporary placeholder for status
-
-    if st.session_state.processed_data_path and os.path.exists(st.session_state.processed_data_path):
-        if not st.session_state.vectorstore_and_retriever_loaded: # Only load if not already loaded in this session
-            try:
-                status_placeholder.info(f"Loading existing Chroma DB from: {st.session_state.processed_data_path}")
-                
-                # --- Load Chroma DB ---
-                vectorstore = Chroma(
-                    persist_directory=st.session_state.processed_data_path,
-                    embedding_function=st.session_state.embeddings # Use embeddings from session state
-                )
-
-                # Define metadata_field_info for retriever instantiation
-                # This must match the structure used during creation.
-                metadata_field_info_for_retriever = [
-                    {"name": "source", "description": "The source document the chunk came from", "type": "string"},
-                    # Add others if you have logic to populate them and want to use them for filtering
-                ]
-
-                # Create/recreate the retriever if it's not already in session state
-                if st.session_state.retriever is None:
-                    st.session_state.retriever = SelfQueryRetriever.from_llm(
-                        st.session_state.llm_retriever,
-                        vectorstore,
-                        # --- ADDED THE MISSING DOCUMENT CONTENTS DESCRIPTION ---
-                        "Brief summary of a document, including its source and any relevant metadata.",
-                        metadata_field_info_for_retriever, # Pass the metadata definitions
-                        verbose=True,
-                        search_kwargs={'k': 5}
-                    )
-
-                st.session_state.vectorstore_and_retriever_loaded = True # Mark as loaded
-                st.session_state.chroma_db_initialized = True # Mark Chroma as initialized
-                status_placeholder.success("Chroma DB and retriever loaded successfully.")
-
-            except Exception as e:
-                st.error(f"Error loading existing Chroma DB: {e}")
-                # Clean up potentially corrupted state
-                st.session_state.processed_data_path = None
-                st.session_state.retriever = None
-                st.session_state.vectorstore_and_retriever_loaded = False
-                st.session_state.chroma_db_initialized = False
-                # Optionally remove the corrupted DB directory
-                if st.session_state.processed_data_path and os.path.exists(st.session_state.processed_data_path):
-                    try:
-                        shutil.rmtree(st.session_state.processed_data_path)
-                        st.sidebar.info(f"Cleaned up potentially corrupted Chroma DB directory: '{st.session_state.processed_data_path}'")
-                    except Exception as rm_e:
-                        st.sidebar.error(f"Could not remove corrupt Chroma DB directory: {rm_e}")
-                st.rerun() # Rerun to reset the state
-    else:
-        # This case handles when there's no existing DB to load
-        pass
-
 # --- Streamlit UI ---
 
 st.set_page_config(page_title="AI Policy Assistant", layout="wide")
@@ -370,13 +240,8 @@ uploaded_files = st.sidebar.file_uploader(
 process_button = st.sidebar.button("Process Documents")
 clear_cache_button = st.sidebar.button("Clear Processed Data")
 
-# Placeholder for status messages (more persistent than temporary ones)
-status_message_placeholder = st.empty()
-
-# --- Initial Load: Try to load existing Chroma DB and Retriever ---
-# This should run once at the start of the app to check for previous processing.
-if not st.session_state.vectorstore_and_retriever_loaded:
-    load_chroma_and_retriever()
+# Placeholder for status messages
+status_placeholder = st.empty()
 
 # --- File Processing Logic ---
 if process_button:
@@ -394,19 +259,19 @@ if process_button:
                 st.sidebar.error(f"Error saving file {uploaded_file.name}: {e}")
 
         if files_saved_count == 0:
-            status_message_placeholder.warning("No files were successfully saved.")
+            status_placeholder.warning("No files were successfully saved.")
         else:
-            status_message_placeholder.info(f"Saved {files_saved_count} files locally. Starting document processing...")
+            status_placeholder.info(f"Saved {files_saved_count} files locally. Starting document processing...")
 
             # --- 2. Load Documents ---
             all_docs = load_documents_from_directory_manually(TEMP_DIR)
 
             if not all_docs:
                 # Error message is handled within load_documents_from_directory_manually
-                status_message_placeholder.error("Document loading failed. Please check file formats and dependencies.")
+                status_placeholder.error("Document loading failed. Please check file formats and dependencies.")
             else:
                 # --- 3. Split Documents ---
-                status_message_placeholder.info("Splitting documents into chunks...")
+                status_placeholder.info("Splitting documents into chunks...")
                 splitter = RecursiveCharacterTextSplitter(
                     chunk_size=1000,
                     chunk_overlap=200,
@@ -416,17 +281,55 @@ if process_button:
                 split_docs = splitter.split_documents(all_docs)
 
                 if not split_docs:
-                    status_message_placeholder.error("Failed to split documents. Content might be too short or malformed.")
+                    status_placeholder.error("Failed to split documents. Content might be too short or malformed.")
                 else:
-                    # --- 4. Initialize Chroma DB and Retriever ---
-                    if not initialize_chroma_and_retriever(split_docs):
-                        status_message_placeholder.error("Failed to initialize vector store and retriever.")
-                    else:
-                         status_message_placeholder.success("Documents processed and indexed successfully! You can now ask questions.")
-                         # Rerun to update UI if necessary after processing
-                         st.rerun()
+                    # --- 4. Create Embeddings and Vector Store (using Chroma) ---
+                    status_placeholder.info("Creating embeddings and indexing documents into Chroma DB...")
+
+                    # Define metadata fields for SelfQueryRetriever.
+                    # This list of dictionaries tells the retriever which metadata keys it can use for filtering.
+                    # IMPORTANT: For filtering to work, these fields MUST be populated in the doc.metadata
+                    # when the documents are loaded and indexed. The load_documents_from_directory_manually
+                    # function currently only adds 'source'. You need to implement logic to extract
+                    # 'age', 'procedure', 'location', 'policy_duration' from document content if required for filtering.
+                    metadata_field_info = [
+                        {"name": "source", "description": "The source document the chunk came from", "type": "string"},
+                        # Add others only if you have logic to populate them:
+                        # {"name": "age", "description": "The age of the policyholder.", "type": "integer"},
+                        # {"name": "procedure", "description": "The medical procedure performed or service requested.", "type": "string"},
+                        # {"name": "location", "description": "The location of the service or hospital.", "type": "string"},
+                        # {"name": "policy_duration", "description": "The duration of the insurance policy.", "type": "string"},
+                    ]
+
+                    try:
+                        vectorstore = Chroma.from_documents(
+                            documents=split_docs,
+                            embedding=st.session_state.embeddings,
+                            persist_directory=CHROMA_DB_DIR # Specify directory for Chroma
+                        )
+                        # Chroma saves automatically upon creation with persist_directory
+
+                        st.session_state.processed_data_path = CHROMA_DB_DIR # Store the Chroma DB directory path
+
+                        # --- 5. Create Retriever ---
+                        st.session_state.retriever = SelfQueryRetriever.from_llm(
+                            st.session_state.llm_retriever, # LLM for query understanding
+                            vectorstore,
+                            # --- ADDED THE MISSING DOCUMENT CONTENTS DESCRIPTION ---
+                            "Brief summary of a document, including its source and any relevant metadata.",
+                            metadata_field_info, # Metadata definitions for filtering
+                            verbose=True,
+                            search_kwargs={'k': 5} # Number of documents to retrieve
+                        )
+                        st.session_state.vectorstore_and_retriever_loaded = True
+
+                        status_placeholder.success("Documents processed and indexed successfully! You can now ask questions.")
+
+                    except Exception as e:
+                        st.error(f"Error during embedding or Chroma DB creation: {e}")
+                        status_placeholder.error("Document processing failed.")
     else:
-        status_message_placeholder.warning("Please upload at least one document to process.")
+        status_placeholder.warning("Please upload at least one document to process.")
 
 # --- Clear Cache Logic ---
 if clear_cache_button:
@@ -434,7 +337,7 @@ if clear_cache_button:
     if os.path.exists(TEMP_DIR):
         try:
             shutil.rmtree(TEMP_DIR)
-            status_message_placeholder.info("Temporary document directory cleared.")
+            status_placeholder.info("Temporary document directory cleared.")
         except Exception as e:
             st.sidebar.error(f"Error clearing temporary directory {TEMP_DIR}: {e}")
 
@@ -443,7 +346,7 @@ if clear_cache_button:
     if chroma_dir_path and os.path.exists(chroma_dir_path):
         try:
             shutil.rmtree(chroma_dir_path)
-            status_message_placeholder.info(f"Chroma DB directory '{chroma_dir_path}' cleared.")
+            status_placeholder.info(f"Chroma DB directory '{chroma_dir_path}' cleared.")
         except Exception as e:
             st.sidebar.error(f"Error clearing Chroma DB directory {chroma_dir_path}: {e}")
 
@@ -451,9 +354,57 @@ if clear_cache_button:
     st.session_state.processed_data_path = None
     st.session_state.retriever = None
     st.session_state.vectorstore_and_retriever_loaded = False
-    st.session_state.chroma_db_initialized = False
     st.sidebar.success("Processed data cleared. Please re-upload documents.")
     st.rerun() # Use the correct method
+
+# --- Load Vector Store and Retriever if it exists ---
+# This block runs when the app starts or reruns, to load previously processed data.
+if st.session_state.processed_data_path and os.path.exists(st.session_state.processed_data_path):
+    if not st.session_state.vectorstore_and_retriever_loaded: # Only load if not already loaded in this session
+        try:
+            status_placeholder.info(f"Loading existing Chroma DB from: {st.session_state.processed_data_path}")
+            # --- Load Chroma DB ---
+            vectorstore = Chroma(
+                persist_directory=st.session_state.processed_data_path,
+                embedding_function=st.session_state.embeddings # Use embeddings from session state
+            )
+
+            # Define metadata_field_info for retriever instantiation
+            # This must match the structure used during creation.
+            metadata_field_info_for_retriever = [
+                {"name": "source", "description": "The source document the chunk came from", "type": "string"},
+                # Add others if you have logic to populate them and want to use them for filtering
+            ]
+
+            # Create/recreate the retriever if it's not already in session state
+            if st.session_state.retriever is None:
+                st.session_state.retriever = SelfQueryRetriever.from_llm(
+                    st.session_state.llm_retriever,
+                    vectorstore,
+                    # --- ADDED THE MISSING DOCUMENT CONTENTS DESCRIPTION ---
+                    "Brief summary of a document, including its source and any relevant metadata.",
+                    metadata_field_info_for_retriever, # Pass the metadata definitions
+                    verbose=True,
+                    search_kwargs={'k': 5}
+                )
+
+            st.session_state.vectorstore_and_retriever_loaded = True # Mark as loaded
+            status_placeholder.success("Chroma DB and retriever loaded successfully.")
+
+        except Exception as e:
+            st.error(f"Error loading existing Chroma DB: {e}")
+            # Clean up potentially corrupted state
+            st.session_state.processed_data_path = None
+            st.session_state.retriever = None
+            st.session_state.vectorstore_and_retriever_loaded = False
+            # Optionally remove the corrupted DB directory
+            if st.session_state.processed_data_path and os.path.exists(st.session_state.processed_data_path):
+                try:
+                    shutil.rmtree(st.session_state.processed_data_path)
+                    st.sidebar.info(f"Cleaned up potentially corrupted Chroma DB directory: '{st.session_state.processed_data_path}'")
+                except Exception as rm_e:
+                    st.sidebar.error(f"Could not remove corrupt Chroma DB directory: {rm_e}")
+            st.rerun() # Rerun to reset the state
 
 # --- Query Interface ---
 st.header("Ask a Question")
@@ -463,10 +414,9 @@ if st.session_state.vectorstore_and_retriever_loaded and st.session_state.retrie
     user_query = st.text_input("Enter your query about the documents:", key="query_input")
 
     if user_query:
-        status_message_placeholder.info("Processing your query...")
+        status_placeholder.info("Processing your query...")
 
-        # Use the LLM stored in session state for parsing
-        query_details = parse_user_query(user_query)
+        query_details = parse_user_query(user_query) # This uses llm_parser_decision from session state
 
         try:
             # Use the retriever from session state
@@ -474,7 +424,6 @@ if st.session_state.vectorstore_and_retriever_loaded and st.session_state.retrie
 
             if not relevant_docs:
                 st.warning("No relevant documents found for your query.")
-                status_message_placeholder.warning("No relevant documents found.")
             else:
                 # Use the LLM stored in session state for creating the chain
                 decision_chain, decision_parser = create_decision_chain(st.session_state.llm_parser_decision, st.session_state.retriever)
@@ -495,29 +444,31 @@ if st.session_state.vectorstore_and_retriever_loaded and st.session_state.retrie
 
                     # Display the results
                     st.subheader("Decision and Justification")
-                    st.write(f"*Decision:* {decision_response.decision}")
+                    st.write(f"Decision: {decision_response.decision}")
                     if decision_response.amount is not None:
-                        st.write(f"*Amount:* ${decision_response.amount:.2f}")
-                    st.write(f"*Justification:* {decision_response.justification}")
+                        st.write(f"Amount: ${decision_response.amount:.2f}")
+                    st.write(f"Justification: {decision_response.justification}")
 
                     if decision_response.clauses_used:
                         st.subheader("Supporting Clauses:")
                         for clause in decision_response.clauses_used:
                             st.markdown(f"- {clause}")
 
-                    status_message_placeholder.success("Query processed successfully!")
+                    status_placeholder.success("Query processed successfully!")
 
                 except Exception as e:
                     # Handle errors during decision making or parsing
-                    status_message_placeholder.error(f"Error during decision making or parsing: {e}")
+                    status_placeholder.error(f"Error during decision making or parsing: {e}")
                     if 'response_content' in locals() and response_content.get('text'):
                         with st.expander("Show Raw AI Output for Debugging"):
                             st.text(response_content['text'])
 
         except Exception as e:
             # Handle errors during document retrieval
-            status_message_placeholder.error(f"Error retrieving documents: {e}")
-            status_message_placeholder.error("Failed to retrieve relevant information.")
+            st.error(f"Error retrieving documents: {e}")
+            status_placeholder.error("Failed to retrieve relevant information.")
 else:
     # This message is shown if vectorstore or retriever are not ready
-    status_message_placeholder.info("Please upload and process your documents first.")
+    st.info("Please upload and process your documents first.")
+
+# very very important
