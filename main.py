@@ -100,7 +100,7 @@ def get_loader_for_file(file_path: str):
         return TextLoader(file_path)
     else:
         try:
-            from langchain_unstructured import UnstructuredLoader
+            from langchain_community.document_loaders import UnstructuredLoader
             st.warning(f"Attempting to load unknown file type '{file_extension}' with UnstructuredLoader.")
             return UnstructuredLoader(file_path)
         except ImportError:
