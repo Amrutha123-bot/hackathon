@@ -3,7 +3,7 @@ venv/
 ENV/
 env/
 .venv/
-
+.env
 # Ignore data, databases, and cache
 chroma_db/
 *.sqlite3
