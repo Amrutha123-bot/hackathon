@@ -3,6 +3,7 @@ import streamlit as st
 import os
 import pickle
 import time
+import lark
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
