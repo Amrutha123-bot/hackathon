@@ -49,10 +49,14 @@ class DecisionResponse(BaseModel):
     amount: Optional[float] = Field(None, description="Payout amount, if applicable.")
     justification: str = Field(..., description="Explanation for the decision, referencing specific clauses.")
     clauses_used: List[str] = Field(..., description="List of document clauses that supported the decision.")
-
-# --- Configuration ---
 # load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
+st.sidebar.write(f"DEBUG: OPENAI_API_KEY found? {'Yes' if openai_api_key else 'No'}")
+if openai_api_key:
+    # Displaying the first few characters to confirm it's not empty
+    st.sidebar.write(f"DEBUG: OPENAI_API_KEY starts with: {openai_api_key[:4]}...")
+# --- Configuration ---
+
 if not openai_api_key:
     st.error("OPENAI_API_KEY not found. Please set the environment variable.")
     st.stop()
