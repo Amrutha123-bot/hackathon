@@ -51,7 +51,7 @@ class DecisionResponse(BaseModel):
     clauses_used: List[str] = Field(..., description="List of document clauses that supported the decision.")
 
 # --- Configuration ---
-load_dotenv()
+# load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     st.error("OPENAI_API_KEY not found. Please set the environment variable.")
