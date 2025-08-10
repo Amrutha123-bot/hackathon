@@ -8,9 +8,10 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import shutil
-
+import sqlite3
 # --- Langchain Imports ---
 # Document Loaders
+from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_community.document_loaders.pdf import UnstructuredPDFLoader
 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
 from langchain_community.document_loaders.email import UnstructuredEmailLoader
