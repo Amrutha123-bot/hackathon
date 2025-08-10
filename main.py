@@ -31,7 +31,6 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.retrievers import SelfQueryRetriever
 from langchain.output_parsers import PydanticOutputParser
-
 # Correctly import Document
 from langchain_core.documents import Document
 # Note: AttributeInfo is not directly used for defining metadata structure; use dictionaries.
