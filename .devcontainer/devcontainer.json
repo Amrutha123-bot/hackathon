@@ -34,23 +34,77 @@
 //   ]
 
 // }
+
+
+
+// {
+//   // "name": "Python 3",
+//   "name": "Python 3.11",
+//   "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
+//   // --- ADDED FEATURES FOR GO AND GRAPHICS/PDF LIBRARIES ---
+//   "features": {
+//     "ghcr.io/devcontainers/features/common-utils:1": {
+//       "installBuildTools": "true", // Ensures build essentials are available
+//       "upgradePackages": "true"
+//     },
+//     "ghcr.io/devcontainers/features/go:1": { // Ensure Go is installed if needed by any packages
+//       "version": "latest"
+//     }
+//   },
+//   // --- USE postCreateCommand FOR SYSTEM-LEVEL INSTALLATIONS ---
+//   "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1-mesa-glx poppler-utils && sudo apt-get clean && rm -rf /var/lib/apt/lists/*",
+//   // --- Keep pip installs in postAttachCommand or use a separate RUN in a Dockerfile if using one ---
+//   "customizations": {
+//     "codespaces": {
+//       "openFiles": [
+//         "README.md",
+//         "main.py"
+//       ]
+//     },
+//     "vscode": {
+//       "settings": {},
+//       "extensions": [
+//         "ms-python.python",
+//         "ms-python.vscode-pylance"
+//       ]
+//     }
+//   },
+//   // Removed updateContentCommand as postCreateCommand handles system deps and pip should be separate
+//   // "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+
+//   "postAttachCommand": {
+//     // IMPORTANT: Ensure you install your project's specific requirements here or in postCreateCommand
+//     // This command is for RUNNING streamlit. Your project's pip dependencies should be installed first.
+//     // A good place for pip install is in postCreateCommand or a dedicated RUN in a Dockerfile.
+//     // Example for pip install: "pip install --no-cache-dir -r requirements.txt && streamlit run main.py ..."
+//     "server": "pip install --no-cache-dir -r requirements.txt && streamlit run main.py --server.enableCORS false --server.enableXsrfProtection false"
+//   },
+//   "portsAttributes": {
+//     "8501": {
+//       "label": "Application",
+//       "onAutoForward": "openPreview"
+//     }
+//   },
+//   "forwardPorts": [
+//     8501
+//   ]
+// }
+
+
 {
-  // "name": "Python 3",
-  "name": "Python 3.11",
+  "name": "Python 3.11 with OCR",
   "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
-  // --- ADDED FEATURES FOR GO AND GRAPHICS/PDF LIBRARIES ---
   "features": {
     "ghcr.io/devcontainers/features/common-utils:1": {
-      "installBuildTools": "true", // Ensures build essentials are available
+      "installBuildTools": "true",
       "upgradePackages": "true"
     },
-    "ghcr.io/devcontainers/features/go:1": { // Ensure Go is installed if needed by any packages
+    "ghcr.io/devcontainers/features/go:1": {
       "version": "latest"
     }
   },
-  // --- USE postCreateCommand FOR SYSTEM-LEVEL INSTALLATIONS ---
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1-mesa-glx poppler-utils && sudo apt-get clean && rm -rf /var/lib/apt/lists/*",
-  // --- Keep pip installs in postAttachCommand or use a separate RUN in a Dockerfile if using one ---
+  // --- ADDED TESSERACT INSTALLATION ---
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1-mesa-glx poppler-utils tesseract-ocr tesseract-ocr-eng && sudo apt-get clean && rm -rf /var/lib/apt/lists/*",
   "customizations": {
     "codespaces": {
       "openFiles": [
@@ -66,14 +120,7 @@
       ]
     }
   },
-  // Removed updateContentCommand as postCreateCommand handles system deps and pip should be separate
-  // "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
-
   "postAttachCommand": {
-    // IMPORTANT: Ensure you install your project's specific requirements here or in postCreateCommand
-    // This command is for RUNNING streamlit. Your project's pip dependencies should be installed first.
-    // A good place for pip install is in postCreateCommand or a dedicated RUN in a Dockerfile.
-    // Example for pip install: "pip install --no-cache-dir -r requirements.txt && streamlit run main.py ..."
     "server": "pip install --no-cache-dir -r requirements.txt && streamlit run main.py --server.enableCORS false --server.enableXsrfProtection false"
   },
   "portsAttributes": {
