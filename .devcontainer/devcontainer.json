@@ -90,9 +90,8 @@
 //   ]
 // }
 
-
 {
-  "name": "Python 3.11 with OCR",
+  "name": "Python 3.11 with OCR and Dependencies",
   "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:1": {
@@ -103,7 +102,6 @@
       "version": "latest"
     }
   },
-  // --- ADDED TESSERACT INSTALLATION ---
   "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1-mesa-glx poppler-utils tesseract-ocr tesseract-ocr-eng && sudo apt-get clean && rm -rf /var/lib/apt/lists/*",
   "customizations": {
     "codespaces": {
@@ -120,8 +118,12 @@
       ]
     }
   },
+  "remoteEnv": {
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}",
+    "OCR_AGENT": "TesseractOCR"
+  },
   "postAttachCommand": {
-    "server": "pip install --no-cache-dir -r requirements.txt && streamlit run main.py --server.enableCORS false --server.enableXsrfProtection false"
+    "server": "pip install --upgrade pip && pip install --no-cache-dir --upgrade pytesseract && pip install --no-cache-dir --upgrade \"unstructured[ocr-tools]\" && pip install --no-cache-dir --upgrade -r requirements.txt && streamlit run main.py --server.enableCORS false --server.enableXsrfProtection false"
   },
   "portsAttributes": {
     "8501": {
